@@ -25,13 +25,7 @@ const userSchema = new Schema(
           trim: true, 
           index: true
       },
-      avatar: {
-          type: String, // cloudinary url
-          required: true,
-      },
-      coverImage: {
-          type: String, // cloudinary url
-      },
+     
       watchHistory: [
           {
               type: Schema.Types.ObjectId,
@@ -58,9 +52,10 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-userSchema.methods.isPasswordCorrect = async function (password) {
-  await bcrypt.compare(password, this.password);
-};
+
+userSchema.methods.isPasswordCorrect = async function(password){
+  return await bcrypt.compare(password, this.password)
+}
 
 userSchema.methods.ganrateAccessToken = function () {
   return jwt.sign(

@@ -1,1 +1,1 @@
-export const DB_NAME = 'kasim'
+export const DB_NAME = 'learnbackend'
