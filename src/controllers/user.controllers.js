@@ -4,6 +4,7 @@ import { User } from "../models/user.model.js";
 import { uploadOnCloudinary } from "../utils/cloudnary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
+import e from "express";
 
 const genrateRefreshTokenAndAccessToken = async (userId) => {
   try {
@@ -172,9 +173,9 @@ const logoutUser = asyncHandler(async (req, res) => {
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingRefreshToken =
-    req.cookies.refreshToken || req.body.refreshToken
+    req.cookies.refreshToken || req.body.refreshToken;
   if (!incomingRefreshToken) {
-    throw new ApiError(401, "Unauthorized request")
+    throw new ApiError(401, "Unauthorized request");
   }
   try {
     const decodedToken = jwt.verify(
@@ -182,14 +183,14 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       process.env.ACCESS_TOKEN_SECRET
     );
 
-    const user = await User.findById(decodedToken?._id)
+    const user = await User.findById(decodedToken?._id);
 
     if (!user) {
-      throw new ApiError(401, "Invalid refresh token")
+      throw new ApiError(401, "Invalid refresh token");
     }
 
     if (incomingRefreshToken !== user?.refreshToken) {
-      throw new ApiError(401, "Refresh token is expired")
+      throw new ApiError(401, "Refresh token is expired");
     }
 
     const options = {
@@ -198,7 +199,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     };
 
     const { accessToken, newrefreshToken } =
-      await genrateRefreshTokenAndAccessToken(user?._id)
+      await genrateRefreshTokenAndAccessToken(user?._id);
 
     return res
       .status(200)
@@ -215,61 +216,128 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
         )
       );
   } catch (e) {
-      throw new ApiError(401, e?.message || "Invalid refresh token")
+    throw new ApiError(401, e?.message || "Invalid refresh token");
   }
 });
 
 const changeCurrentPassword = asyncHandler(async (req, res) => {
-  const {oldPassword, newPassword} = req.body
-  const user = await User.findById(req.user?._id)
+  const { oldPassword, newPassword } = req.body;
+  const user = await User.findById(req.user?._id);
 
-  const isPasswordCorrect =  await user.isPasswordCorrect(oldPassword);
+  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
 
-  if(!isPasswordCorrect){
-    throw ApiError(400, "Invalid Old Password")
+  if (!isPasswordCorrect) {
+    throw ApiError(400, "Invalid Old Password");
   }
 
-  user.password = newPassword
-  await user.save({validateBeforeSave: false})
+  user.password = newPassword;
+  await user.save({ validateBeforeSave: false });
 
   return res
-  .status(200)
-  .json(new ApiResponse(200, {}, "Password changed successfully"))
-  
-
+    .status(200)
+    .json(new ApiResponse(200, {}, "Password changed successfully"));
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  return res.status(200)
-  .json(new ApiResponse(200, req.user, "Success"))
+  return res.status(200).json(new ApiResponse(200, req.user, "Success"));
 });
 
 const updateUser = asyncHandler(async (req, res) => {
-const {fullName, email} =  req.body
+  const { fullName, email } = req.body;
 
-if(!fullName || !email){
-  throw ApiError(400, "All filed are required")
-}
-
-const user = await User.findByIdAndUpdate(
-  req.user?._id,
-  {
-    $set: {
-      fullName,
-      email
-    }
-  },
-  {
-    new: true
+  if (!fullName || !email) {
+    throw ApiError(400, "All filed are required");
   }
-).select("-password")
 
-return res
-.status(200)
-.json(
-  new ApiResponse(200, user, "Update Successfully")
-)
+  const user = await User.findByIdAndUpdate(
+    req.user?._id,
+    {
+      $set: {
+        fullName,
+        email,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
 
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "Update Successfully"));
 });
 
-export { registerUser, loginUser, logoutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateUser};
+const channel = asyncHandler(async (req, res) => {
+  const { channelName } = req.body;
+  if (!channelName?.trim()) {
+    throw new ApiError(400, "Channel name is required");
+  }
+  const channel = await User.aggregate([
+    {
+      $match: {
+        channel: channelName?.toLowerCase(),
+      },
+    },
+    {
+      $lookup: {
+        from: "Subscription",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers",
+      },
+    },
+    {
+      $lookup: {
+        from: "Subscription",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscriptions",
+      },
+    },
+    {
+      $addFields: {
+        subscriberCount: { $size: "$subscribers" },
+        subscriptionCount: { $size: "$subscriptions" },
+        isSubscribed: {
+          $cond: {
+            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+            then: true,
+            else: false,
+          },
+        
+        },
+      },
+    },
+    {
+      $project: {
+        fullName: 1,
+        username: 1,
+        email: 1,
+        avatar: 1,
+        coverImage: 1,
+        subscriberCount: 1,
+        subscriptionCount: 1,
+        isSubscribed: 1,
+      },
+    }
+  ]);
+
+  if (!channel?.length) {
+    throw new ApiError(404, "Channel not found");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, channel[0], "Channel details fetched successfully"));
+});
+
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  refreshAccessToken,
+  changeCurrentPassword,
+  getCurrentUser,
+  updateUser,
+  channel
+};
