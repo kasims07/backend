@@ -1,6 +1,7 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
+import { Subscription } from "../models/subscription.model.js";
 import { uploadOnCloudinary } from "../utils/cloudnary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
@@ -267,60 +268,102 @@ const updateUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "Update Successfully"));
 });
 
+const subscribeChannel = asyncHandler(async (req, res) => {
+  const { channelId } = req.body;
+
+  if (!channelId) {
+    throw new ApiError(400, "Channel ID is required");
+  }
+
+  const channel = await User.findById(channelId);
+  if (!channel) {
+    throw new ApiError(404, "Channel not found");
+  }
+  const isAlreadySubscribed = await Subscription.findOne({
+    subscriber: req.user?._id,
+    channel: channelId,
+  });
+  if (isAlreadySubscribed) {
+    throw new ApiError(400, "You are already subscribed to this channel");
+  }
+  const subscription = await Subscription.create({
+    subscriber: req.user?._id,
+    channel: channelId,
+  }); 
+  if (!subscription) {
+    throw new ApiError(500, "Something went wrong while subscribing to channel");
+  }
+  return res
+    .status(200)
+    .json(new ApiResponse(200, subscription, "Subscribed to channel successfully"));
+});
+
 const channel = asyncHandler(async (req, res) => {
   const { channelName } = req.body;
   if (!channelName?.trim()) {
     throw new ApiError(400, "Channel name is required");
   }
-  const channel = await User.aggregate([
-    {
-      $match: {
-        channel: channelName?.toLowerCase(),
-      },
-    },
-    {
-      $lookup: {
-        from: "Subscription",
-        localField: "_id",
-        foreignField: "channel",
-        as: "subscribers",
-      },
-    },
-    {
-      $lookup: {
-        from: "Subscription",
-        localField: "_id",
-        foreignField: "subscriber",
-        as: "subscriptions",
-      },
-    },
-    {
-      $addFields: {
-        subscriberCount: { $size: "$subscribers" },
-        subscriptionCount: { $size: "$subscriptions" },
+  const channel = await User.aggregate(
+    [
+  {
+    $match: {
+      username: channelName.toLowerCase()
+    }
+  },
+  {
+    $lookup: {
+      from: "subscriptions",
+      localField: "_id",
+      foreignField: "channel",
+      as: "subscribers"
+    }
+  },
+  {
+    $lookup: {
+      from: "subscriptions",
+      localField: "_id",
+      foreignField: "subscriber",
+      as: "subscriptions"
+    }
+  },
+  {
+    $addFields:
+      {
+        subscriberCount: {
+          $size: "$subscribers"
+        },
+        subscriptionCount: {
+          $size: "$subscriptions"
+        },
         isSubscribed: {
           $cond: {
-            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+            if: {
+              $in: [
+                req.user?._id,
+                "$subscribers.subscriber"
+              ]
+            },
             then: true,
-            else: false,
-          },
-        
-        },
-      },
-    },
-    {
-      $project: {
-        fullName: 1,
-        username: 1,
-        email: 1,
-        avatar: 1,
-        coverImage: 1,
-        subscriberCount: 1,
-        subscriptionCount: 1,
-        isSubscribed: 1,
-      },
-    }
-  ]);
+            else: false
+          }
+        }
+      }
+  },
+  {
+            $project: {
+                fullName: 1,
+                username: 1,
+                subscriberCount: 1,
+                subscriptionCount: 1,
+                isSubscribed: 1,
+                // avatar: 1,
+                // coverImage: 1,
+                email: 1
+
+            }
+        }
+]
+);
 
   if (!channel?.length) {
     throw new ApiError(404, "Channel not found");
@@ -339,5 +382,6 @@ export {
   changeCurrentPassword,
   getCurrentUser,
   updateUser,
+  subscribeChannel,
   channel
 };
